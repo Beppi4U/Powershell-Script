@@ -1,0 +1,90 @@
+# PowerShell-Skript zum Konvertieren von Excel- und PowerPoint-Dateien in einem Verzeichnis zu PDFs
+# powershell
+#
+# Ein PowerShellScript zum kovertieren von Excel und Powerpoint Dateien in einem Verzeichniss.
+# Die Konvertierten Dateien werden in einem separaten Verzeichniss abgelegt.
+# Die Konvertierung wird in einer Log Datei Protokolliert.
+# Durch Verbose True Or False können Ausgaben im Terminal geschaltet werden.
+# 
+# Version 1.05
+# 01.03.2025 Andreas Lübeck
+
+# Eingabe- und Ausgabeverzeichnisse definieren
+$inputPath = "C:\Users\EXCELPOWER" # Pfad zu den Excel- oder PowerPoint-Dateien
+$outputPath = "C:\Users\PDF" # Pfad, wo die PDFs gespeichert werden sollen
+$logFile = "C:\Users\conversion_log.txt"
+
+# Verbose-Flag aus den Skriptparametern erhalten
+# param (
+#    [switch]$verbose
+#)
+$verbose = $false
+
+# Funktion zum Protokollieren
+function Log-Message {
+    param (
+        [string]$message
+    )
+    $timestamp = Get-Date -Format "dd-MM-yyyy HH:mm:ss"
+    $logEntry = "$timestamp - $message"
+    Add-Content -Path $logFile -Value $logEntry
+    if ($verbose) {
+        Write-Host $logEntry
+    }
+}
+
+# Excel und PowerPoint Anwendungen starten
+$excel = New-Object -ComObject Excel.Application
+$excel.Visible = $false  # Excel unsichtbar machen
+$powerpoint = New-Object -ComObject PowerPoint.Application
+$powerpoint.Visible = $false  # PowerPoint unsichtbar machen
+
+# Fehlerbehandlung sicherstellen
+try {
+    # Excel-Dateien konvertieren
+    $excelFiles = Get-ChildItem -Path $inputPath -Filter *.xlsx
+    foreach ($file in $excelFiles) {
+        Log-Message "Konvertiere Excel-Datei: $($file.FullName)"
+        $workbook = $excel.Workbooks.Open($file.FullName)
+        $pdfPath = Join-Path -Path $outputPath -ChildPath ($file.BaseName + ".pdf")
+        $workbook.ExportAsFixedFormat(0, $pdfPath)
+        $workbook.Close($false)
+        Log-Message "Erfolgreich konvertiert: $pdfPath"
+    }
+
+    # PowerPoint-Dateien konvertieren
+    $pptFiles = Get-ChildItem -Path $inputPath -Filter *.pptx
+    foreach ($file in $pptFiles) {
+        Log-Message "Konvertiere PowerPoint-Datei: $($file.FullName)"
+        $presentation = $powerpoint.Presentations.Open($file.FullName, [Microsoft.Office.Core.MsoTriState]::msoFalse)
+        $pdfPath = Join-Path -Path $outputPath -ChildPath ($file.BaseName + ".pdf")
+        $presentation.SaveAs($pdfPath, [Microsoft.Office.Interop.PowerPoint.PpSaveAsFileType]::ppSaveAsPDF)
+        $presentation.Close()
+        Log-Message "Erfolgreich konvertiert: $pdfPath"
+    }
+} catch {
+    Log-Message "Fehler: $_"
+} finally {
+    # Excel und PowerPoint korrekt schließen
+    try {
+        $excel.Quit()
+        $powerpoint.Quit()
+
+        # COM-Objekte freigeben
+        [System.Runtime.Interopservices.Marshal]::ReleaseComObject($excel) | Out-Null
+        [System.Runtime.Interopservices.Marshal]::ReleaseComObject($powerpoint) | Out-Null
+
+        # Optional: Prozess beenden, falls Excel/PowerPoint nicht ordnungsgemäß beendet wurde
+        Get-Process -Name "excel" -ErrorAction SilentlyContinue | ForEach-Object { $_.Kill() }
+        Get-Process -Name "powerpnt" -ErrorAction SilentlyContinue | ForEach-Object { $_.Kill() }
+
+        # Garbage Collection anstoßen, um die freigegebenen COM-Objekte zu sammeln
+        [System.GC]::Collect()
+        [System.GC]::WaitForPendingFinalizers()
+
+        Log-Message "Konvertierung abgeschlossen."
+        Log-Message" \n"
+    } catch {
+        Log-Message "Fehler beim Schließen der Anwendungen: $_"
+    }
+}
